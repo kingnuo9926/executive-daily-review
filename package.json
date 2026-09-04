@@ -1,0 +1,14 @@
+{
+  "name": "executive-daily-review",
+  "version": "0.1.0",
+  "private": true,
+  "description": "高管日复盘 App · Web 壳 MVP 原型（四段式对话 + 周报聚合）",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node tests/smoke_test.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

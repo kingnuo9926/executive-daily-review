@@ -15,3 +15,6 @@ Thumbs.db
 
 # Project memory (sensitive, keep out of VCS by default)
 .workbuddy/memory/
+
+# Runtime data store (local JSON DB, regenerated at runtime)
+/data/

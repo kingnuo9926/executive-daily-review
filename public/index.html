@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>高管日复盘 · AI 教练</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo">◐</span>
+      <div>
+        <div class="title">高管日复盘</div>
+        <div class="subtitle">AI 教练式语音日记 · Web 壳 MVP</div>
+      </div>
+    </div>
+    <span id="modeBadge" class="badge demo">演示模式</span>
+    <nav class="tabs">
+      <button class="tab active" data-view="review">复盘</button>
+      <button class="tab" data-view="report">周报</button>
+      <button class="tab" data-view="settings">设置</button>
+    </nav>
+  </header>
+
+  <main>
+    <!-- ===== 复盘视图 ===== -->
+    <section id="view-review" class="view active">
+      <div class="stepper" id="stepper"></div>
+
+      <div class="chat" id="chatLog"></div>
+
+      <div class="composer">
+        <textarea id="userInput" rows="2" placeholder="用说话的方式复盘（MVP 阶段以文字轮流对话验证教练逻辑）…"></textarea>
+        <div class="composer-actions">
+          <button id="sendBtn" class="btn primary">发送</button>
+          <button id="finishBtn" class="btn ghost" disabled>结束今日复盘</button>
+        </div>
+      </div>
+
+      <div id="finishPanel" class="finish-panel hidden">
+        <div class="field-row">
+          <label>今日能量（1–5）
+            <input type="range" id="energy" min="1" max="5" value="3" />
+            <span id="energyVal">3</span>
+          </label>
+          <label>今日心情
+            <input type="text" id="mood" placeholder="如：平稳 / 焦虑 / 振奋" />
+          </label>
+        </div>
+        <button id="saveFinishBtn" class="btn primary">保存并生成周报</button>
+      </div>
+    </section>
+
+    <!-- ===== 周报视图 ===== -->
+    <section id="view-report" class="view">
+      <div class="report-head">
+        <h2>本周复盘聚合</h2>
+        <div id="weekRange" class="muted"></div>
+        <button id="refreshReport" class="btn ghost small">刷新</button>
+      </div>
+      <div id="reportBody" class="report-body"></div>
+    </section>
+
+    <!-- ===== 设置视图 ===== -->
+    <section id="view-settings" class="view">
+      <h2>设置</h2>
+      <p class="muted">LLM 由你自配（OpenAI 兼容协议）。密钥仅存服务端，前端掩码显示。</p>
+
+      <div class="card">
+        <h3>大模型（LLM）</h3>
+        <label class="field">服务地址（baseURL）
+          <input type="text" id="llmBaseURL" placeholder="https://api.deepseek.com/v1" />
+        </label>
+        <label class="field">API Key
+          <input type="password" id="llmApiKey" placeholder="sk-..." />
+        </label>
+        <label class="field">模型名
+          <input type="text" id="llmModel" placeholder="deepseek-chat" />
+        </label>
+        <label class="field-inline">
+          <input type="checkbox" id="demoMode" /> 演示模式（无密钥也可体验，使用规则式教练）
+        </label>
+      </div>
+
+      <div class="card">
+        <h3>教练 Persona</h3>
+        <label class="field">语气
+          <select id="tone">
+            <option value="warm">温暖</option>
+            <option value="serious">严肃</option>
+            <option value="sharp">锐利</option>
+            <option value="encouraging">鼓励</option>
+          </select>
+        </label>
+        <label class="field-inline">
+          <input type="checkbox" id="challengeMode" /> 挑战式追问（适度质疑、追问依据）
+        </label>
+      </div>
+
+      <div class="card">
+        <h3>用户画像（用于更贴身的追问）</h3>
+        <label class="field">行业
+          <input type="text" id="industry" placeholder="如：通信 / 金融" />
+        </label>
+        <label class="field">角色
+          <input type="text" id="role" placeholder="如：省公司政企经理" />
+        </label>
+        <label class="field">高频主题（逗号分隔）
+          <input type="text" id="profileTags" placeholder="如：授权、决策犹豫、团队激励" />
+        </label>
+      </div>
+
+      <button id="saveSettingsBtn" class="btn primary">保存设置</button>
+      <span id="settingsMsg" class="muted"></span>
+    </section>
+  </main>
+
+  <script src="/app.js"></script>
+</body>
+</html>
