@@ -109,6 +109,15 @@ const server = http.createServer(async (req, res) => {
         const userId = url.searchParams.get('userId') || store.getSettings().user.id;
         return sendJSON(res, 200, store.listSessions(userId));
       }
+      // 对话进度快照（刷新后恢复用）
+      const stateMatch = p.match(/^\/api\/sessions\/([^/]+)\/state$/);
+      if (stateMatch && method === 'POST') {
+        const body = await readBody(req);
+        const s = store.saveSessionState(stateMatch[1], body);
+        if (!s) return sendJSON(res, 404, { error: 'session not found or already finished' });
+        return sendJSON(res, 200, { ok: true, stage: s.state.stage });
+      }
+
       const segMatch = p.match(/^\/api\/sessions\/([^/]+)\/segments$/);
       if (segMatch && method === 'POST') {
         const body = await readBody(req);

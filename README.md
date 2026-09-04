@@ -47,7 +47,10 @@ tests/smoke_test.js            端到端冒烟测试（npm test）
 ### 主要接口
 - `GET/POST /api/settings` 读写 LLM 与用户设置
 - `POST /api/chat` 教练对话（四段式引导，返回 reply/tags/actionItems/advance/done）
-- `POST/GET /api/sessions`、`POST /api/sessions/:id/segments`、`POST /api/sessions/:id/finish`
+- `POST/GET /api/sessions` 创建 / 列出会话
+- `POST /api/sessions/:id/state` **进度快照**（每轮对话后保存，页面刷新可恢复上下文与当前段）
+- `POST /api/sessions/:id/finish` 结束复盘，**一次提交四段 segment**（整体覆盖，重复提交幂等）
+- `POST /api/sessions/:id/segments` 逐段追加（保留兼容，前端已改为一次提交四段）
 - `GET /api/report/weekly` 本周聚合（主题词频、能量走势、行动项、AI 一句总结）
 
 ## 四段式主线（§2）
@@ -68,7 +71,7 @@ tests/smoke_test.js            端到端冒烟测试（npm test）
 
 ## 已知局限（MVP 范围内的有意取舍）
 1. **无鉴权**：当前为单用户本地原型，未做登录/鉴权；生产化需补（见文末）。
-2. **会话续聊未恢复进度**：刷新页面会复用当天未结束的会话，但对话从第 1 段重新开始；若再次结束复盘，会向同一会话追加一份 segment。正式版需做进度恢复（按已有 segments 定位当前段）。
+2. **进度恢复依赖服务端快照**：每轮对话后写入 `session.state`，刷新页面可完整恢复对话与当前段；已结束（done）的会话不再接受快照。清空 `data/db.json` 会丢失历史。
 3. **演示模式为规则式教练**：无密钥时按「每段两轮 + 过渡语」推进，主题标签走关键词词典匹配；真实追问深度需接入 LLM 后体现。
 4. **语音为路线图项**：当前以文字轮流对话验证教练逻辑，全双工 ASR/TTS 与打断检测尚未实现（§3）。
 5. **周报仅本周**：未做历史周切换与月/季报（§5.3 路线图第 3 阶段）。

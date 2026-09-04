@@ -98,10 +98,19 @@ function bindSettings() { $('#saveSettingsBtn').addEventListener('click', saveSe
 async function ensureSession() {
   const list = await fetch('/api/sessions').then(r => r.json());
   const today = localDate(new Date());
-  const active = list.find(s => s.status === 'active' && s.date.slice(0, 10) === today);
-  if (active) {
+  const active = list.find(s => s.status === 'active' && localDate(s.date) === today);
+
+  // 有进度快照 -> 恢复：刷新页面不丢上下文，也不会重复写入 segment
+  if (active && active.state && (active.state.messages || []).length) {
     state.sessionId = active.id;
-    // 简单恢复：直接进入第4段结束态之前，这里仅继续新对话
+    restoreState(active.state);
+    renderStepper();
+    renderHistory();
+    if (state.finished) $('#finishPanel').classList.remove('hidden');
+    return;
+  }
+  if (active) {
+    state.sessionId = active.id;   // 当天已有空会话但尚未开始
   } else {
     const s = await fetch('/api/sessions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }).then(r => r.json());
     state.sessionId = s.id;
@@ -109,8 +118,47 @@ async function ensureSession() {
   await getOpener();
 }
 
-function addMsg(role, content, meta) {
-  state.messages.push({ role, content });
+/** 从后端进度快照恢复本地状态（Set 需还原，JSON 序列化后会退化为对象） */
+function restoreState(st) {
+  state.stage = Number(st.stage) || 1;
+  state.stageUserTurns = Number(st.stageUserTurns) || 0;
+  state.messages = Array.isArray(st.messages) ? st.messages : [];
+  state.stageTranscripts = st.stageTranscripts || {};
+  state.stageTags = {};
+  for (const k of Object.keys(st.stageTags || {})) state.stageTags[k] = new Set(st.stageTags[k] || []);
+  state.stageActions = st.stageActions || {};
+  state.finished = !!st.finished;
+}
+
+/** 按当前 messages 重绘对话区（恢复历史用，不重复入栈） */
+function renderHistory() {
+  $('#chatLog').innerHTML = '';
+  for (const m of state.messages) renderMsg(m.role, m.content);
+}
+
+/** 每轮对话结束后保存进度快照，供刷新恢复 */
+async function saveState() {
+  if (!state.sessionId) return;
+  const stageTags = {};
+  for (const k of Object.keys(state.stageTags)) stageTags[k] = Array.from(state.stageTags[k] || []);
+  try {
+    await fetch('/api/sessions/' + state.sessionId + '/state', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        stage: state.stage,
+        stageUserTurns: state.stageUserTurns,
+        messages: state.messages,
+        stageTranscripts: state.stageTranscripts,
+        stageTags,
+        stageActions: state.stageActions,
+        finished: state.finished
+      })
+    });
+  } catch (e) { /* 快照失败不阻塞对话 */ }
+}
+
+/** 仅渲染，不入栈（addMsg 会入栈后再调用它） */
+function renderMsg(role, content, meta) {
   const wrap = el('div', 'msg ' + role);
   const who = role === 'ai' ? 'AI 教练' : '我';
   wrap.appendChild(el('div', null, `<div class="who">${who}</div><div class="bubble">${escapeHtml(content)}</div>`));
@@ -122,6 +170,11 @@ function addMsg(role, content, meta) {
   }
   $('#chatLog').appendChild(wrap);
   $('#chatLog').scrollTop = $('#chatLog').scrollHeight;
+}
+
+function addMsg(role, content, meta) {
+  state.messages.push({ role, content });
+  renderMsg(role, content, meta);
 }
 
 async function getOpener() {
@@ -185,6 +238,7 @@ async function sendUser() {
         const op = await callCoach();
         if (op && op.reply) addMsg('ai', op.reply);
       }
+      await saveState();
     }
   } catch (e) {
     addMsg('ai', '（连接异常：' + e.message + '）');
@@ -209,33 +263,55 @@ function renderStepper() {
 function bindFinish() {
   $('#finishBtn').addEventListener('click', () => { $('#finishPanel').classList.remove('hidden'); });
   $('#saveFinishBtn').addEventListener('click', finishSession);
+  $('#restartBtn').addEventListener('click', restartSession);
 }
+
+/** 放弃当前进度，重新开始一次复盘 */
+async function restartSession() {
+  if (state.busy) return;
+  if (state.messages.length && !confirm('放弃当前进度，重新开始今天的复盘？')) return;
+  await startNewSession();
+}
+
 async function finishSession() {
-  // 保存各段为 segment
+  // 一次性提交四段：后端整体覆盖，重复提交不会导致 segment 翻倍
+  const segments = [];
   for (const s of STAGES) {
     const transcript = (state.stageTranscripts[s.id] || []).join('\n');
     if (!transcript) continue;
-    const tags = Array.from(state.stageTags[s.id] || []);
-    const actions = state.stageActions[s.id] || [];
-    await fetch('/api/sessions/' + state.sessionId + '/segments', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ stage: s.id, transcript, tags, actionItems: actions })
+    segments.push({
+      stage: s.id,
+      transcript,
+      tags: Array.from(state.stageTags[s.id] || []),
+      actionItems: state.stageActions[s.id] || []
     });
   }
   const energy = Number($('#energy').value);
   const mood = $('#mood').value.trim();
   await fetch('/api/sessions/' + state.sessionId + '/finish', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ energyScore: energy, overallMood: mood })
+    body: JSON.stringify({ energyScore: energy, overallMood: mood, segments })
   });
   addMsg('ai', '✅ 今日复盘已沉淀。可在「周报」查看本周聚合。');
   $('#finishPanel').classList.add('hidden');
-  // 进入新会话
-  state.sessionId = null; state.stage = 1; state.stageUserTurns = 0; state.messages = [];
-  state.stageTranscripts = {}; state.stageTags = {}; state.stageActions = {}; state.finished = false;
+  await startNewSession();
+}
+
+/** 开启一次全新复盘（结束后自动进入下一次） */
+async function startNewSession() {
+  const s = await fetch('/api/sessions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }).then(r => r.json());
+  state.sessionId = s.id;
+  state.stage = 1;
+  state.stageUserTurns = 0;
+  state.messages = [];
+  state.stageTranscripts = {};
+  state.stageTags = {};
+  state.stageActions = {};
+  state.finished = false;
   renderStepper();
   $('#chatLog').innerHTML = '';
-  await ensureSession();
+  $('#finishBtn').disabled = true;
+  await getOpener();
 }
 
 // ---------- 周报 ----------

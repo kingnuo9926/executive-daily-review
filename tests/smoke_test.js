@@ -76,24 +76,58 @@ async function runConversation() {
   return { stageTags, actionItems };
 }
 
-/** 会话沉淀：创建 -> 写四段 segment -> 结束 */
+/** 会话沉淀：创建 -> 进度快照(刷新恢复) -> 一次提交四段 -> 幂等校验 */
 async function runSession(stageTags, actionItems) {
-  console.log('\n[2] 会话沉淀');
+  console.log('\n[2] 会话沉淀与进度恢复');
   const s = await post('/api/sessions', {});
   check('创建会话返回 id', !!s.id, JSON.stringify(s));
 
-  for (let st = 1; st <= 4; st++) {
-    const seg = await post(`/api/sessions/${s.id}/segments`, {
-      stage: st,
-      transcript: INPUTS[st].join(' | '),
-      tags: stageTags[st] || [],
-      actionItems: st === 4 ? actionItems : []
+  // 进度快照：模拟中途刷新页面后恢复
+  const snapshot = {
+    stage: 3, stageUserTurns: 1,
+    messages: [
+      { role: 'user', content: INPUTS[1][0] },
+      { role: 'ai', content: '开场提问' }
+    ],
+    stageTranscripts: { 1: [INPUTS[1][0]] },
+    stageTags: { 1: stageTags[1] || [] },
+    stageActions: {},
+    finished: false
+  };
+  const saved = await post(`/api/sessions/${s.id}/state`, snapshot);
+  check('进度快照保存成功', saved.ok === true && saved.stage === 3, JSON.stringify(saved));
+
+  const reread = await get(`/api/sessions/${s.id}`);
+  check('快照可回读（页面刷新后恢复上下文）',
+    !!reread.state && reread.state.stage === 3 && reread.state.messages.length === 2,
+    JSON.stringify(reread.state).slice(0, 120));
+
+  // 结束复盘：一次性提交四段
+  const segs = [];
+  for (let stg = 1; stg <= 4; stg++) {
+    segs.push({
+      stage: stg,
+      transcript: INPUTS[stg].join(' | '),
+      tags: stageTags[stg] || [],
+      actionItems: stg === 4 ? actionItems : []
     });
-    if (st === 4) check('四段 segment 均写入', (seg.segments || []).length === 4, `segments=${(seg.segments || []).length}`);
   }
-  const fin = await post(`/api/sessions/${s.id}/finish`, { energyScore: 4, overallMood: '平稳' });
+  const fin = await post(`/api/sessions/${s.id}/finish`, { energyScore: 4, overallMood: '平稳', segments: segs });
   check('会话状态置为 done', fin.status === 'done', fin.status);
+  check('四段 segment 一次写入', (fin.segments || []).length === 4, `segments=${(fin.segments || []).length}`);
   check('能量值已保存', fin.energyScore === 4, String(fin.energyScore));
+
+  // 幂等：重复提交不应让 segment 翻倍
+  const fin2 = await post(`/api/sessions/${s.id}/finish`, { energyScore: 4, overallMood: '平稳', segments: segs });
+  check('重复结束幂等（segment 不翻倍）', (fin2.segments || []).length === 4,
+    `segments=${(fin2.segments || []).length}`);
+
+  // 已结束的会话不再接受进度快照
+  let locked = false;
+  try { await post(`/api/sessions/${s.id}/state`, snapshot); }
+  catch (e) { locked = /404/.test(e.message); }
+  check('已结束会话拒绝写入快照', locked);
+
   return s.id;
 }
 
