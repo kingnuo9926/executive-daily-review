@@ -53,7 +53,9 @@ async function loadSettings() {
   state.settings = r;
   // 填充表单
   $('#llmBaseURL').value = r.llm.baseURL || '';
-  $('#llmApiKey').value = r.llm.apiKey || '';
+  // 后端返回的是掩码串，记下来用于判断用户是否改动过（未改动则不回传，避免覆盖真实 Key）
+  state.maskedKey = r.llm.apiKey || '';
+  $('#llmApiKey').value = state.maskedKey;
   $('#llmModel').value = r.llm.model || '';
   $('#demoMode').checked = !!r.llm.demoMode;
   $('#tone').value = (r.user.prefs && r.user.prefs.tone) || 'warm';
@@ -71,14 +73,24 @@ function updateModeBadge() {
   else { badge.textContent = '演示模式'; badge.className = 'badge demo'; }
 }
 
+/** 当前 API Key 输入框的值是否为"未改动"（即仍是后端回传的掩码串） */
+function isKeyUnchanged() {
+  const v = $('#llmApiKey').value.trim();
+  return !!state.maskedKey && v === state.maskedKey;
+}
+
 async function saveSettings() {
+  const keyVal = $('#llmApiKey').value.trim();
+  const llm = {
+    baseURL: $('#llmBaseURL').value.trim(),
+    model: $('#llmModel').value.trim(),
+    demoMode: $('#demoMode').checked
+  };
+  // 仅在用户实际改动时回传 apiKey；未改动（仍是掩码）则不传，避免把掩码写回覆盖真实 Key
+  if (!isKeyUnchanged()) llm.apiKey = keyVal;
+
   const payload = {
-    llm: {
-      baseURL: $('#llmBaseURL').value.trim(),
-      apiKey: $('#llmApiKey').value.trim(),
-      model: $('#llmModel').value.trim(),
-      demoMode: $('#demoMode').checked
-    },
+    llm,
     user: {
       industry: $('#industry').value.trim(),
       role: $('#role').value.trim(),
@@ -88,11 +100,48 @@ async function saveSettings() {
   };
   const r = await fetch('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }).then(r => r.json());
   state.settings = r;
+  state.maskedKey = r.llm.apiKey || '';   // 保存后以服务端返回的新掩码为准
+  $('#llmApiKey').value = state.maskedKey;
   updateModeBadge();
   $('#settingsMsg').textContent = '已保存 ✓';
   setTimeout(() => { $('#settingsMsg').textContent = ''; }, 2000);
 }
-function bindSettings() { $('#saveSettingsBtn').addEventListener('click', saveSettings); }
+function bindSettings() {
+  $('#saveSettingsBtn').addEventListener('click', saveSettings);
+  $('#testLlmBtn').addEventListener('click', testLlm);
+}
+
+/** LLM 连通性自检：未改动 Key 时由服务端用已保存的真实 Key 测试 */
+async function testLlm() {
+  const btn = $('#testLlmBtn'), msg = $('#testLlmMsg');
+  const payload = {
+    baseURL: $('#llmBaseURL').value.trim(),
+    model: $('#llmModel').value.trim()
+  };
+  const keyVal = $('#llmApiKey').value.trim();
+  if (!isKeyUnchanged() && keyVal) payload.apiKey = keyVal;   // 仅传用户新填的 Key
+
+  btn.disabled = true;
+  msg.textContent = '测试中…';
+  msg.className = 'muted';
+  try {
+    const r = await fetch('/api/llm/test', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+    }).then(r => r.json());
+    if (r.ok) {
+      msg.textContent = `✓ 连通（${r.latencyMs}ms）模型：${r.model || '—'}`;
+      msg.className = 'test-ok';
+    } else {
+      msg.textContent = '✗ ' + (r.error || '连接失败');
+      msg.className = 'test-fail';
+    }
+  } catch (e) {
+    msg.textContent = '✗ ' + e.message;
+    msg.className = 'test-fail';
+  } finally {
+    btn.disabled = false;
+  }
+}
 
 // ---------- 会话 ----------
 async function ensureSession() {

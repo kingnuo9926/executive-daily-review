@@ -81,6 +81,18 @@ const server = http.createServer(async (req, res) => {
         return sendJSON(res, 200, maskSettings(saved));
       }
 
+      // LLM 连通性自检
+      if (p === '/api/llm/test' && method === 'POST') {
+        const body = await readBody(req);
+        const s = store.getSettings();
+        const r = await coach.testConnection({
+          baseURL: body.baseURL || s.llm.baseURL,
+          apiKey: body.apiKey || s.llm.apiKey,      // 前端未改动 Key 时回落到服务端已保存值
+          model: body.model || s.llm.model
+        });
+        return sendJSON(res, 200, r);
+      }
+
       // 教练对话
       if (p === '/api/chat' && method === 'POST') {
         const body = await readBody(req);

@@ -112,6 +112,9 @@ textarea {
   border-radius: 8px; padding: 9px 12px; font-size: 14px; font-family: inherit;
 }
 .field-inline { display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--text); margin: 6px 0; }
+.test-row { display: flex; align-items: center; gap: 10px; margin-top: 10px; flex-wrap: wrap; }
+.test-ok { color: var(--ok); font-size: 13px; }
+.test-fail { color: #ff7b72; font-size: 13px; word-break: break-all; }
 
 /* Report */
 .report-head { display: flex; align-items: center; gap: 14px; margin-bottom: 16px; }
