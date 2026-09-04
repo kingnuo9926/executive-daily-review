@@ -1,0 +1,17 @@
+# Build / dependencies
+node_modules/
+dist/
+build/
+*.log
+
+# OS / editor
+.DS_Store
+Thumbs.db
+*.tmp
+
+# Local env
+.env
+.env.local
+
+# Project memory (sensitive, keep out of VCS by default)
+.workbuddy/memory/
