@@ -28,17 +28,24 @@ npm start
 - **演示模式**（默认）：无需任何密钥即可跑通四段式对话与周报，使用规则式兜底教练。
 - **接入真实 LLM**：进入「设置」页，关闭演示模式，填写 baseURL / API Key / 模型名（OpenAI 兼容协议，如 DeepSeek、通义、智谱、GLM 等）。
 
+**智谱（GLM）接入提示**（已实测验证）：
+- 推荐模型 `glm-4.5-air`：支持关闭思考，单轮响应约 0.5–3 秒，JSON 输出稳定。
+- `glm-5.x-flash` 等"始终思考"型模型单轮思考可达 25 秒以上，且思考 token 计入 `max_tokens`，会挤占回复空间——服务端已统一提高 max_tokens 并采用 40s 超时兜底。
+- 服务端对所有请求默认附加 `thinking: {type:"disabled"}`（智谱语法），端点返回 400 时自动去参重试，对 DeepSeek / 通义等端点同样安全。
+
 ### 测试
 服务启动后另开一个终端执行：
 
 ```bash
-npm test              # 全部（冒烟 26 项 + LLM 路径 22 项）
-npm run test:smoke    # 主链路：四段式状态机、会话沉淀与恢复、周报聚合
-npm run test:llm      # 真实 LLM 调用路径（用本地 mock 端点，无需真实 API Key）
+npm test              # 全部（冒烟 26 项 + LLM 路径 mock 24 项）
+npm run test:smoke    # 主链路：四段式状态机、会话沉淀与恢复、周报聚合（自动临时切演示模式）
+npm run test:llm      # 真实 LLM 调用路径（用本地 mock 端点；检测到已配真实密钥时自动跳过）
+npm run test:live     # 真实厂商端到端联调（需已配置可用 Key；未配置时自动跳过）
 ```
 
 `test:llm` 覆盖：请求构造（路径/鉴权头/模型/系统提示词）、响应解析（标准 JSON / ```json 围栏 / 纯文本 / 空内容）、
-advance-done 映射、HTTP 错误降级、连通性自检、以及「不传 apiKey 不覆盖已保存密钥」。
+状态机推进（满 2 轮强制 advance / 第 4 段强制 done + 行动项兜底）、HTTP 错误降级、连通性自检、以及「不传 apiKey 不覆盖已保存密钥」。
+`test:live` 覆盖：真实端点连通性、四段式完整对话（含每轮未发生静默降级断言）、标签/行动项真实提取、周报 AI 总结。
 
 ## 架构
 ```
@@ -46,7 +53,9 @@ advance-done 映射、HTTP 错误降级、连通性自检、以及「不传 apiK
                                ├─ lib/coach.js  教练引擎（LLM 调用 + 演示兜底 + 主题识别）
                                ├─ lib/store.js  本地 JSON 仓储（生产可换 PostgreSQL）
                                └─ data/db.json  运行时数据（已 gitignore）
-tests/smoke_test.js            端到端冒烟测试（npm test）
+tests/smoke_test.js            端到端冒烟测试（npm run test:smoke）
+tests/llm_test.js              LLM 调用路径 mock 测试（npm run test:llm）
+tests/live_llm_test.js         真实厂商端到端联调（npm run test:live）
 ```
 
 ### 主要接口

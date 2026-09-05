@@ -60,10 +60,11 @@ const mock = http.createServer((req, res) => {
   });
 });
 
-async function chat() {
+async function chat(stage, stageUserTurns) {
   return post('/api/chat', {
     messages: [{ role: 'user', content: '今天和客户谈崩了。' }],
-    stage: 1, stageUserTurns: 1, tone: 'warm', challengeMode: false
+    stage: stage || 1, stageUserTurns: stageUserTurns == null ? 1 : stageUserTurns,
+    tone: 'warm', challengeMode: false
   });
 }
 
@@ -72,6 +73,14 @@ async function chat() {
   let original = null;
   try {
     original = await get('/api/settings');
+    // 安全保护：已配置真实密钥时，写测试配置会覆盖用户 Key（掩码无法还原）。
+    // 默认跳过；开发时可设 LLM_TEST_ALLOW_OVERWRITE=1 强制运行（事后需自行恢复密钥）。
+    if (original.llm && original.llm.apiKey && !process.env.LLM_TEST_ALLOW_OVERWRITE) {
+      console.log('  SKIP  检测到已配置真实 LLM 密钥，跳过 mock 测试以免覆盖用户配置。');
+      console.log('  （如需强制运行：LLM_TEST_ALLOW_OVERWRITE=1）');
+      console.log(`结果：0 passed, 0 failed (skipped)`);
+      return;
+    }
 
     await new Promise(r => mock.listen(0, '127.0.0.1', r));
     const port = mock.address().port;
@@ -92,12 +101,16 @@ async function chat() {
     check('请求体带 system 提示词（含四段式目标）',
       JSON.stringify(lastReq.body.messages).includes('教练'), JSON.stringify(lastReq.body.messages).slice(0, 120));
 
-    console.log('\n[2] 响应解析');
+    console.log('\n[2] 响应解析与状态机');
     mode = 'json';
     let r = await chat();
     check('标准 JSON：reply 正确', r.reply === '这是教练追问', r.reply);
     check('标准 JSON：tags 正确', JSON.stringify(r.tags) === JSON.stringify(['客户', '交付']), JSON.stringify(r.tags));
-    check('标准 JSON：advance=false', r.advance === false, String(r.advance));
+    check('满2轮时代码强制 advance（即使模型返回 false）', r.advance === true, String(r.advance));
+
+    mode = 'json';
+    r = await chat(1, 0);
+    check('不足2轮时尊重模型判断 advance=false', r.advance === false, String(r.advance));
 
     mode = 'fenced';
     r = await chat();
@@ -105,19 +118,24 @@ async function chat() {
     check('围栏 JSON：advance=true 生效', r.advance === true, String(r.advance));
 
     mode = 'plaintext';
-    r = await chat();
+    r = await chat(1, 0);
     check('纯文本：原文兜底为 reply', r.reply === '这是一段没有 JSON 的纯文本回复', r.reply);
     check('纯文本：tags 为空数组', Array.isArray(r.tags) && r.tags.length === 0, JSON.stringify(r.tags));
 
     mode = 'empty';
-    r = await chat();
+    r = await chat(1, 0);
     check('空内容：reply 有兜底文案不为空', !!r.reply && r.reply.length > 0, JSON.stringify(r));
 
     mode = 'done';
-    r = await chat();
-    check('done 标记正确传递', r.done === true, String(r.done));
+    r = await chat(4, 1);
+    check('第4段满2轮：模型 done=true 透传', r.done === true, String(r.done));
     check('行动项正确提取',
       JSON.stringify(r.actionItems) === JSON.stringify(['明天与交付负责人对齐周期']), JSON.stringify(r.actionItems));
+
+    mode = 'json';
+    r = await chat(4, 1);
+    check('第4段满2轮：模型未给 done 也强制结束', r.done === true, String(r.done));
+    check('强制结束时行动项兜底取用户末条消息', r.actionItems.length === 1 && r.actionItems[0].includes('客户'), JSON.stringify(r.actionItems));
 
     console.log('\n[3] 失败降级');
     mode = 'http500';

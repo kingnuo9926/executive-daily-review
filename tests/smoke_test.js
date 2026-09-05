@@ -165,9 +165,16 @@ async function runReport() {
     check('设置接口可用', !!settings.llm, JSON.stringify(settings).slice(0, 120));
     check('API Key 前端掩码', !settings.llm.apiKey || settings.llm.apiKey.includes('***'), settings.llm.apiKey);
 
-    const { stageTags, actionItems } = await runConversation();
-    await runSession(stageTags, actionItems);
-    await runReport();
+    // 冒烟测试针对演示模式（规则式教练）设计：临时切换，结束后复原。
+    // 按字段合并写入，不会触碰已保存的 apiKey/baseURL/model。
+    await post('/api/settings', { llm: { demoMode: true } });
+    try {
+      const { stageTags, actionItems } = await runConversation();
+      await runSession(stageTags, actionItems);
+      await runReport();
+    } finally {
+      await post('/api/settings', { llm: { demoMode: !!settings.llm.demoMode } });
+    }
   } catch (e) {
     fail++;
     console.log('\n  ERROR  ' + e.message);
