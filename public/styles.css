@@ -99,6 +99,20 @@ textarea {
 .btn.ghost { background: transparent; }
 .btn.small { padding: 5px 12px; font-size: 13px; }
 
+/* 语音输入麦克风按钮 */
+.mic-btn { display: inline-flex; align-items: center; justify-content: center; width: 42px; padding: 0; color: var(--muted); }
+.mic-btn:hover { color: var(--text); }
+.mic-btn:disabled { cursor: not-allowed; opacity: 0.4; }
+.mic-btn.recording {
+  color: #fff; background: #c93c3c; border-color: #c93c3c;
+  animation: mic-pulse 1.2s ease-in-out infinite;
+}
+@keyframes mic-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+@media (prefers-reduced-motion: reduce) { .mic-btn.recording { animation: none; } }
+
 .finish-panel { margin-top: 14px; background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; padding: 16px; }
 .field-row { display: flex; gap: 20px; flex-wrap: wrap; margin-bottom: 12px; }
 .field-row label { display: flex; align-items: center; gap: 8px; font-size: 14px; }

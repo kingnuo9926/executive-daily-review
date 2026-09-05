@@ -31,8 +31,11 @@
       <div class="chat" id="chatLog"></div>
 
       <div class="composer">
-        <textarea id="userInput" rows="2" placeholder="用说话的方式复盘（MVP 阶段以文字轮流对话验证教练逻辑）…"></textarea>
+        <textarea id="userInput" rows="2" placeholder="点击左侧麦克风说话，或直接打字复盘…"></textarea>
         <div class="composer-actions">
+          <button id="micBtn" class="btn ghost mic-btn" title="点击说话" aria-label="语音输入">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 1 3 3v6a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3z"/><path d="M19 10v1a7 7 0 0 1-14 0v-1"/><path d="M12 18v4"/></svg>
+          </button>
           <button id="sendBtn" class="btn primary">发送</button>
           <button id="finishBtn" class="btn ghost" disabled>结束今日复盘</button>
           <button id="restartBtn" class="btn ghost small" title="放弃当前进度，重新开始今天的复盘">重新开始</button>
@@ -100,6 +103,9 @@
         </label>
         <label class="field-inline">
           <input type="checkbox" id="challengeMode" /> 挑战式追问（适度质疑、追问依据）
+        </label>
+        <label class="field-inline">
+          <input type="checkbox" id="voiceReply" /> 语音播报教练回复（浏览器合成语音）
         </label>
       </div>
 

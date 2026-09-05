@@ -30,6 +30,7 @@ async function init() {
   bindSettings();
   bindFinish();
   bindReport();
+  Voice.init();
   await loadSettings();
   await ensureSession();
   renderStepper();
@@ -60,6 +61,7 @@ async function loadSettings() {
   $('#demoMode').checked = !!r.llm.demoMode;
   $('#tone').value = (r.user.prefs && r.user.prefs.tone) || 'warm';
   $('#challengeMode').checked = !!(r.user.prefs && r.user.prefs.challengeMode);
+  $('#voiceReply').checked = !!(r.user.prefs && r.user.prefs.voiceReply);
   $('#industry').value = r.user.industry || '';
   $('#role').value = r.user.role || '';
   $('#profileTags').value = (r.user.profileTags || []).join('、');
@@ -95,7 +97,7 @@ async function saveSettings() {
       industry: $('#industry').value.trim(),
       role: $('#role').value.trim(),
       profileTags: $('#profileTags').value.split(/[，,、]/).map(s => s.trim()).filter(Boolean),
-      prefs: { tone: $('#tone').value, challengeMode: $('#challengeMode').checked }
+      prefs: { tone: $('#tone').value, challengeMode: $('#challengeMode').checked, voiceReply: $('#voiceReply').checked }
     }
   };
   const r = await fetch('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }).then(r => r.json());
@@ -228,7 +230,10 @@ function addMsg(role, content, meta) {
 
 async function getOpener() {
   const r = await callCoach();
-  if (r && r.reply) addMsg('ai', r.reply);
+  if (r && r.reply) {
+    addMsg('ai', r.reply);
+    await speak(r.reply);
+  }
 }
 
 async function callCoach() {
@@ -257,6 +262,7 @@ async function sendUser() {
   const text = input.value.trim();
   if (!text) return;
   input.value = '';
+  Voice.pause();   // 请求与播报期间暂停拾音，避免回声
 
   // 记录本段用户文本（addMsg 内部已入栈 state.messages，此处不重复 push）
   addMsg('user', text);
@@ -275,6 +281,7 @@ async function sendUser() {
       (state.stageActions[state.stage] = state.stageActions[state.stage] || []).push(...(r.actionItems || []));
 
       if (r.done) {
+        await speak(r.reply);
         // 第4段完成 -> 显示结束面板
         $('#finishPanel').classList.remove('hidden');
         $('#finishBtn').disabled = false;
@@ -285,7 +292,12 @@ async function sendUser() {
         renderStepper();
         // 拉取下一段开场
         const op = await callCoach();
-        if (op && op.reply) addMsg('ai', op.reply);
+        if (op && op.reply) {
+          addMsg('ai', op.reply);
+          await speak(op.reply);
+        }
+      } else {
+        await speak(r.reply);
       }
       await saveState();
     }
@@ -294,6 +306,7 @@ async function sendUser() {
   } finally {
     state.busy = false;
     $('#sendBtn').disabled = false;
+    Voice.resumeIfWanted();   // 播报结束后若仍处于语音模式，继续拾音
   }
 }
 
@@ -397,6 +410,109 @@ async function loadReport() {
 }
 
 // ---------- utils ----------
+// ---------- 语音（级联管线第一阶：浏览器 ASR 输入 + TTS 播报） ----------
+/**
+ * 语音输入：Web Speech API（Edge/Chrome 内置，中文识别）。
+ * 点击开始/停止；识别结果实时填入输入框，识别到完整句自动发送。
+ * 教练回复播报期间与请求进行中暂停拾音，避免 TTS 回声被麦克风再次拾取。
+ */
+const Voice = (() => {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  let rec = null;
+  let desired = false;          // 用户意图：是否处于语音输入模式
+  const supported = !!SR;
+
+  function setUI(on) {
+    const b = $('#micBtn');
+    b.classList.toggle('recording', on);
+    b.title = on ? '点击停止录音' : '点击说话';
+  }
+
+  function init() {
+    const micBtn = $('#micBtn');
+    if (!supported) {
+      micBtn.disabled = true;
+      micBtn.title = '当前浏览器不支持语音识别，请使用 Edge 或 Chrome';
+      return;
+    }
+    rec = new SR();
+    rec.lang = 'zh-CN';
+    rec.interimResults = true;
+    rec.continuous = false;
+    rec.onresult = (e) => {
+      let interim = '', final = '';
+      for (let i = 0; i < e.results.length; i++) {
+        const r = e.results[i];
+        if (r.isFinal) final += r[0].transcript; else interim += r[0].transcript;
+      }
+      $('#userInput').value = final || interim;
+      if (final && !state.busy) sendUser();   // 识别到完整句：自动发送
+    };
+    rec.onend = () => {
+      setUI(false);
+      resumeIfWanted();
+    };
+    rec.onerror = (e) => {
+      setUI(false);
+      if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
+        desired = false;
+        addMsg('ai', '（麦克风权限被拒绝：请在浏览器地址栏允许麦克风后重试）');
+      } else if (e.error !== 'no-speech' && e.error !== 'aborted') {
+        addMsg('ai', '（语音识别异常：' + e.error + '）');
+      }
+    };
+    micBtn.addEventListener('click', toggle);
+  }
+
+  function toggle() {
+    if (!supported) return;
+    if (desired) {
+      desired = false;
+      try { rec.stop(); } catch (e) { /* noop */ }
+      setUI(false);
+    } else {
+      desired = true;
+      try { rec.start(); setUI(true); } catch (e) { /* already started */ }
+    }
+  }
+
+  /** 请求/播报期间暂停拾音 */
+  function pause() {
+    if (supported && rec) { try { rec.stop(); } catch (e) { /* noop */ } }
+  }
+
+  function resumeIfWanted() {
+    if (supported && desired && !state.busy && !speechSynthesisBusy()) {
+      try { rec.start(); setUI(true); } catch (e) { /* noop */ }
+    }
+  }
+
+  function speechSynthesisBusy() {
+    return 'speechSynthesis' in window && (speechSynthesis.speaking || speechSynthesis.pending);
+  }
+
+  return { init, pause, resumeIfWanted, isDesired: () => desired, supported };
+})();
+
+/** 教练回复语音播报：浏览器 speechSynthesis，选中文语音；返回 Promise 便于串行 */
+function speak(text) {
+  const prefs = state.settings && state.settings.user.prefs;
+  if (!prefs || !prefs.voiceReply || !('speechSynthesis' in window) || !text) return Promise.resolve();
+  return new Promise((resolve) => {
+    try {
+      speechSynthesis.cancel();
+      const u = new SpeechSynthesisUtterance(text);
+      u.lang = 'zh-CN';
+      u.rate = 1.05;
+      const zh = speechSynthesis.getVoices().find(v => v.lang && v.lang.toLowerCase().startsWith('zh'));
+      if (zh) u.voice = zh;
+      u.onend = resolve;
+      u.onerror = resolve;
+      speechSynthesis.speak(u);
+    } catch (e) { resolve(); }
+  });
+}
+
 /** 按本地时区取 YYYY-MM-DD（避免 toISOString 的 UTC 日期偏移） */
 function localDate(d) {
   const dt = new Date(d);

@@ -165,6 +165,13 @@ async function runReport() {
     check('设置接口可用', !!settings.llm, JSON.stringify(settings).slice(0, 120));
     check('API Key 前端掩码', !settings.llm.apiKey || settings.llm.apiKey.includes('***'), settings.llm.apiKey);
 
+    // 语音 UI（前端静态资源断言）
+    const page = await fetch(BASE + '/').then(r => r.text());
+    check('麦克风按钮已就位', page.includes('micBtn'), '');
+    check('语音播报开关已就位', page.includes('voiceReply'), '');
+    const appJs = await fetch(BASE + '/app.js').then(r => r.text());
+    check('语音模块已挂载（Web Speech API）', appJs.includes('SpeechRecognition') && appJs.includes('speechSynthesis'), '');
+
     // 冒烟测试针对演示模式（规则式教练）设计：临时切换，结束后复原。
     // 按字段合并写入，不会触碰已保存的 apiKey/baseURL/model。
     await post('/api/settings', { llm: { demoMode: true } });
