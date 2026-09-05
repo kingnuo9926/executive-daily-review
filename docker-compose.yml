@@ -1,0 +1,24 @@
+services:
+  edr:
+    build: .
+    image: executive-daily-review:latest
+    container_name: edr-app
+    restart: unless-stopped
+    ports:
+      # 对外服务端口 6601 -> 容器内 3000
+      - "6601:3000"
+    environment:
+      - PORT=3000
+      - NODE_ENV=production
+    volumes:
+      # 对话/设置数据持久化，容器重建不丢
+      - edr_data:/app/data
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
+volumes:
+  edr_data:

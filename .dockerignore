@@ -1,0 +1,13 @@
+# 不纳入镜像构建上下文的文件
+.git
+.workbuddy
+# 运行时本地数据库（含真实 API Key 等敏感信息），容器启动后自动重建默认配置
+data
+node_modules
+*.log
+tests
+dist
+build
+# 文档与说明无关运行，可排除以减小镜像
+README.md
+docs
